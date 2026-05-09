@@ -20,7 +20,7 @@ def get_exchange():
 st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
 
 # --- SIDEBAR CONTROLS ---
-symbol = st.sidebar.selectbox("Pair", ["BTC/USDT", "ETH/USDT"])
+symbol_ui = st.sidebar.selectbox("Pair", ["BTC/USDT", "ETH/USDT"])
 
 with st.sidebar.expander("📐 Pivot Levels", expanded=True):
     prev_h = st.number_input("Prev High", value=65000.0)
@@ -29,17 +29,27 @@ with st.sidebar.expander("📐 Pivot Levels", expanded=True):
 
 try:
     ex = get_exchange()
-    ticker = ex.fetch_ticker(symbol)
     
-    # --- ERROR FIX: SAFETY CHECK FOR PRICE ---
+    # --- ERROR FIX: CCXT FUTURES SYMBOL FORMAT ---
+    # Futures market ke liye symbol ke aage ':USDT' lagana zaruri hota hai
+    ccxt_symbol = f"{symbol_ui}:USDT"
+    
+    # Ticker aur Orderbook dono ek sath mangwate hain
+    ticker = ex.fetch_ticker(ccxt_symbol)
+    ob = ex.fetch_order_book(ccxt_symbol, limit=10)
+    
     spot = ticker.get('last')
+    
+    # --- BULLETPROOF PRICE CHECK ---
+    # Agar Ticker se price nahi mila, toh Orderbook ke current Bid/Ask se nikal lenge
     if spot is None:
-        spot = ticker.get('close') # Agar 'last' nahi mila toh 'close' price check karega
-        
+        if ob['bids'] and ob['asks']:
+            spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
+
     if spot is None:
-        raise ValueError("API se price abhi load nahi hua hai (None value).")
-        
-    spot = float(spot) # Isko proper number mein convert kar diya
+        raise ValueError(f"Symbol '{ccxt_symbol}' ka data abhi API par available nahi hai.")
+
+    spot = float(spot)
     
     # Pivot Calculation Logic
     pivot = (prev_h + prev_l + prev_c) / 3
@@ -54,9 +64,7 @@ try:
     st.divider()
     
     # Live Orderbook
-    ob = ex.fetch_order_book(symbol, limit=10)
     st.subheader("⚔️ Live Orderbook Battle")
-    
     col1, col2 = st.columns(2)
     with col1:
         st.write("🟢 Bids (Buyers)")
