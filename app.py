@@ -27,12 +27,10 @@ st.title("🏹 GRK ULTIMATE F&O SNIPER | DELTA INDIA")
 # --- SIDEBAR: SETTINGS & RISK MANAGEMENT ---
 st.sidebar.header("⚙️ Strategy Settings")
 
-# 🚨 Naya Symbol Input (Options aur Futures dono ke liye)
 st.sidebar.caption("Futures Ex: BTC/USDT:USDT")
 st.sidebar.caption("Options Ex: BTC/USDT:USDT-240531-70000-C")
 ccxt_symbol = st.sidebar.text_input("Exact Contract Symbol", value="BTC/USDT:USDT")
 
-# Kucoin ka spot symbol SMA ke liye (e.g. BTC-USDT)
 base_coin = ccxt_symbol.split('/')[0] if '/' in ccxt_symbol else 'BTC'
 kucoin_symbol = f"{base_coin}-USDT"
 
@@ -50,24 +48,31 @@ try:
     ex = get_exchange()
     chart_ex = get_chart_exchange()
     
-    # 1. LIVE DATA FETCHING (Ticker for Greeks/OI + Orderbook for Price)
+    # 1. LIVE DATA FETCHING
     ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
-    # Extracting Raw Delta API Response
-    info = ticker.get('info', {})
+    # 🚨 THE EXACT FIX (Based on your Delta API Docs Video)
+    # Agar info 'None' aata hai, toh usko empty dict {} maan lenge taaki crash na ho
+    info = ticker.get('info') or {}
     
-    # 🚨 Sahi Tarika: OI aur Volume nikalne ka
-    oi = float(ticker.get('openInterest') or info.get('open_interest') or 0.0)
-    volume = float(ticker.get('baseVolume') or info.get('volume_24h') or 0.0)
+    # Volume aur OI nikalne ka exact tarika
+    oi_raw = info.get('open_interest')
+    oi = float(oi_raw) if oi_raw is not None else 0.0
     
-    # 🚨 Sahi Tarika: Delta API mein Greeks hamesha 'greeks' object ke andar hote hain
-    greeks_data = info.get('greeks', {})
+    vol_raw = info.get('volume_24h')
+    volume = float(vol_raw) if vol_raw is not None else float(ticker.get('baseVolume') or 0.0)
     
-    delta_val = float(greeks_data.get('delta', 0.0))
-    theta_val = float(greeks_data.get('theta', 0.0))
-    gamma_val = float(greeks_data.get('gamma', 0.0))
-    iv_val = float(greeks_data.get('iv') or info.get('implied_volatility') or 0.0)
+    # Greeks nikalne ka 100% crash-proof tarika (Agar greeks 'null' hain toh {} use hoga)
+    greeks_data = info.get('greeks') or {}
+    
+    delta_val = float(greeks_data.get('delta') or 0.0)
+    theta_val = float(greeks_data.get('theta') or 0.0)
+    gamma_val = float(greeks_data.get('gamma') or 0.0)
+    
+    # IV ke liye fallback logic
+    iv_raw = greeks_data.get('iv') or info.get('implied_volatility')
+    iv_val = float(iv_raw) if iv_raw is not None else 0.0
     
     # 2. SMA DATA FETCHING (KuCoin Spot Data)
     ohlcv = chart_ex.fetch_ohlcv(kucoin_symbol, timeframe, limit=sma_period + 5)
@@ -138,10 +143,9 @@ try:
     else:
         chk3.warning("⚠️ Low Liquidity (Wait)")
 
-    # 🚨 FINAL SIGNAL CALCULATION (Trend + Pressure + Liquidity)
+    # 🚨 FINAL SIGNAL CALCULATION
     signal = "WAIT ⏳"
     if current_sma > 0:
-        # Conditions for strong trade: Trend is matching Pressure AND there is OI/Volume in market
         if is_price_above_sma and is_buyer_strong and (oi > 0 or volume > 0):
             signal = "🟢 BUY LONG SIGNAL"
         elif not is_price_above_sma and is_seller_strong and (oi > 0 or volume > 0):
