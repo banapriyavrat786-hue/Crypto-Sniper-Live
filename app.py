@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import time
 
-# --- AAPKI DELTA EXCHANGE INDIA API KEYS ---
+# --- AAPKI DELTA EXCHANGE API KEYS ---
 API_KEY = "FI831QLhYTsF8M6MhoCKFgHfy0Tf12"
 SECRET_KEY = "x6LK5Q75IKpfOMjnrIR9ee85EwRhresB7Jp1SY333XplXum8FSpp2iVAalfA"
 
@@ -12,23 +12,16 @@ st.set_page_config(page_title="GRK Crypto Sniper V77", layout="wide")
 
 @st.cache_resource
 def get_exchange():
-    ex = ccxt.delta({
+    # URL Override hata diya hai taaki API Key fail na ho
+    return ccxt.delta({
         'apiKey': API_KEY,
         'secret': SECRET_KEY,
         'options': {'defaultType': 'future'}
     })
-    # --- FIX 1: DELTA INDIA SERVER ROUTING ---
-    # CCXT ko specifically India server par redirect kar rahe hain
-    ex.urls['api'] = {
-        'public': 'https://api.india.delta.exchange',
-        'private': 'https://api.india.delta.exchange'
-    }
-    return ex
 
 @st.cache_resource
 def get_chart_exchange():
-    # --- FIX 2: BULLETPROOF SMA DATA ---
-    # Charts aur trend calculation ke liye Binance ka fast public data use karenge
+    # Binance for 100% reliable SMA/Candle Data
     return ccxt.binance()
 
 st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
@@ -50,13 +43,14 @@ try:
     ex = get_exchange()
     chart_ex = get_chart_exchange()
     
+    # Delta Futures ke liye symbol format
     ccxt_symbol = f"{symbol_ui}:USDT"
     
-    # 1. LIVE DATA FETCHING (Delta India se)
+    # 1. LIVE DATA FETCHING (Delta se)
     ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
-    # 2. SMA DATA FETCHING (Binance se - 100% Reliable)
+    # 2. SMA DATA FETCHING (Binance se - Fast & Safe)
     ohlcv = chart_ex.fetch_ohlcv(symbol_ui, timeframe, limit=sma_period + 5)
         
     if not ohlcv or len(ohlcv) < sma_period:
@@ -68,14 +62,14 @@ try:
         df['SMA'] = df['close'].rolling(window=sma_period).mean()
         current_sma = df['SMA'].dropna().iloc[-1]
         
-    # 3. BULLETPROOF PRICE LOGIC
+    # 3. LIVE PRICE LOGIC
     spot = ticker.get('last')
     if spot is None:
         if ob['bids'] and ob['asks']:
             spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
             
     if spot is None:
-        raise ValueError("Live Price API se connect nahi ho pa raha.")
+        raise ValueError("Live Price load nahi hua.")
     spot = float(spot)
 
     # SMA Trend calculation
@@ -96,7 +90,6 @@ try:
     st.subheader("📋 Algorithmic Entry Checklist")
     chk1, chk2, chk3 = st.columns(3)
     
-    # Checklist Display
     if current_sma > 0:
         chk1.info(f"📈 Trend Check: {'Bullish (Price > SMA)' if is_price_above_sma else 'Bearish (Price < SMA)'}")
     else:
@@ -109,7 +102,6 @@ try:
     else:
         chk2.warning("⚖️ Volume Check: Neutral Market")
 
-    # Signal Generation
     signal = "WAIT ⏳"
     if current_sma > 0:
         if is_price_above_sma and is_buyer_strong:
@@ -130,7 +122,6 @@ try:
     else:
         c2.metric("SMA Trend Line", "Loading...")
     
-    # Target and SL Calculation
     if "BUY" in signal:
         target_price = spot + (spot * (tp_pct/100))
         sl_price = spot - (spot * (sl_pct/100))
@@ -171,6 +162,6 @@ try:
     st.rerun()
 
 except Exception as e:
-    st.error(f"Market data connection refresh ho raha hai... Details: {e}")
+    st.error(f"Error Details: {e}")
     time.sleep(4)
     st.rerun()
