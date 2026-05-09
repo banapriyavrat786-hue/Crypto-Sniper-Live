@@ -1,9 +1,10 @@
 import streamlit as st
 import ccxt
 import pandas as pd
+import numpy as np
 import time
 
-# --- AAPKI DELTA EXCHANGE API KEYS ---
+# --- AAPKI DELTA EXCHANGE INDIA API KEYS ---
 API_KEY = "FI831QLhYTsF8M6MhoCKFgHfy0Tf12"
 SECRET_KEY = "x6LK5Q75IKpfOMjnrIR9ee85EwRhresB7Jp1SY333XplXum8FSpp2iVAalfA"
 
@@ -11,11 +12,24 @@ st.set_page_config(page_title="GRK Crypto Sniper V77", layout="wide")
 
 @st.cache_resource
 def get_exchange():
-    return ccxt.delta({
+    ex = ccxt.delta({
         'apiKey': API_KEY,
         'secret': SECRET_KEY,
         'options': {'defaultType': 'future'}
     })
+    # --- FIX 1: DELTA INDIA SERVER ROUTING ---
+    # CCXT ko specifically India server par redirect kar rahe hain
+    ex.urls['api'] = {
+        'public': 'https://api.india.delta.exchange',
+        'private': 'https://api.india.delta.exchange'
+    }
+    return ex
+
+@st.cache_resource
+def get_chart_exchange():
+    # --- FIX 2: BULLETPROOF SMA DATA ---
+    # Charts aur trend calculation ke liye Binance ka fast public data use karenge
+    return ccxt.binance()
 
 st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
 
@@ -34,17 +48,16 @@ tp_pct = st.sidebar.number_input("Target (%)", min_value=0.1, value=2.0, step=0.
 
 try:
     ex = get_exchange()
-    ccxt_symbol = f"{symbol_ui}:USDT" # Futures trade ke liye
+    chart_ex = get_chart_exchange()
     
-    # 1. LIVE DATA FETCHING
+    ccxt_symbol = f"{symbol_ui}:USDT"
+    
+    # 1. LIVE DATA FETCHING (Delta India se)
     ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
-    # 2. SMA DATA FETCHING (Double Safety)
-    try:
-        ohlcv = ex.fetch_ohlcv(symbol_ui, timeframe, limit=sma_period + 5)
-    except:
-        ohlcv = ex.fetch_ohlcv(ccxt_symbol, timeframe, limit=sma_period + 5)
+    # 2. SMA DATA FETCHING (Binance se - 100% Reliable)
+    ohlcv = chart_ex.fetch_ohlcv(symbol_ui, timeframe, limit=sma_period + 5)
         
     if not ohlcv or len(ohlcv) < sma_period:
         current_sma = 0
@@ -153,7 +166,7 @@ try:
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
 
-    # Refresh Loop (Thoda time badhaya hai taaki Delta block na kare)
+    # Refresh Loop
     time.sleep(3)
     st.rerun()
 
