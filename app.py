@@ -19,8 +19,8 @@ def get_exchange():
 
 st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
 
-# --- SIDEBAR: SETTINGS & TRADING ---
-st.sidebar.header("⚙️ Settings")
+# --- SIDEBAR: SETTINGS & RISK MANAGEMENT ---
+st.sidebar.header("⚙️ Strategy Settings")
 symbol_ui = st.sidebar.selectbox("Pair", ["BTC/USDT", "ETH/USDT"])
 
 with st.sidebar.expander("📐 Pivot Levels", expanded=True):
@@ -30,48 +30,30 @@ with st.sidebar.expander("📐 Pivot Levels", expanded=True):
 
 st.sidebar.divider()
 
-# --- LIVE TRADE PANEL ---
-st.sidebar.header("⚡ Live Trading Panel")
-trade_qty = st.sidebar.number_input("Quantity (Contracts)", min_value=1, value=1)
-
-t1, t2 = st.sidebar.columns(2)
-buy_clicked = t1.button("🟢 BUY LONG")
-sell_clicked = t2.button("🔴 SELL SHORT")
+st.sidebar.header("🛡️ Risk Management (SL & Target)")
+trade_qty = st.sidebar.number_input("Quantity", min_value=1, value=1)
+sl_pct = st.sidebar.number_input("Stop Loss (%)", min_value=0.1, value=1.0, step=0.1)
+tp_pct = st.sidebar.number_input("Target (%)", min_value=0.1, value=2.0, step=0.1)
 
 try:
     ex = get_exchange()
     ccxt_symbol = f"{symbol_ui}:USDT"
     
-    # --- ORDER EXECUTION LOGIC ---
-    if buy_clicked:
-        try:
-            order = ex.create_market_buy_order(ccxt_symbol, trade_qty)
-            st.sidebar.success("✅ Buy Order Placed Successfully!")
-        except Exception as e:
-            st.sidebar.error(f"❌ Trade Error: {e}")
-            
-    if sell_clicked:
-        try:
-            order = ex.create_market_sell_order(ccxt_symbol, trade_qty)
-            st.sidebar.success("✅ Sell Order Placed Successfully!")
-        except Exception as e:
-            st.sidebar.error(f"❌ Trade Error: {e}")
-
     # --- DATA FETCHING ---
     ticker = ex.fetch_ticker(ccxt_symbol)
-    ob = ex.fetch_order_book(ccxt_symbol, limit=20) # Limit badhayi Safety Check ke liye
+    ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
     spot = ticker.get('last')
     if spot is None:
         if ob['bids'] and ob['asks']:
             spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
-
     if spot is None:
         raise ValueError("Data nahi mil raha hai.")
+    
     spot = float(spot)
     pivot = (prev_h + prev_l + prev_c) / 3
 
-    # --- BUYER/SELLER SAFETY PERCENTAGE ---
+    # --- BUYER/SELLER PRESSURE ---
     bids_qty = sum([bid[1] for bid in ob['bids']])
     asks_qty = sum([ask[1] for ask in ob['asks']])
     total_qty = bids_qty + asks_qty
@@ -79,27 +61,75 @@ try:
     buy_pressure = (bids_qty / total_qty) * 100 if total_qty > 0 else 50
     sell_pressure = (asks_qty / total_qty) * 100 if total_qty > 0 else 50
 
-    # --- DASHBOARD METRICS ---
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Live Price", f"${spot:,.2f}")
-    c2.metric("Pivot (P)", f"${pivot:,.2f}", delta=f"{round(spot-pivot, 2)}")
+    # --- STRATEGY CHECKLIST & LOGIC ---
+    is_price_above_pivot = spot > pivot
+    is_buyer_strong = buy_pressure > 55.0
+    is_seller_strong = sell_pressure > 55.0
+
+    st.subheader("📋 Algorithmic Entry Checklist")
+    chk1, chk2, chk3 = st.columns(3)
     
-    # Safety Percentage UI
-    c3.metric("🟢 Buyer Safety (Pressure)", f"{buy_pressure:.1f}%", f"{buy_pressure - 50:.1f}%")
-    st.progress(int(buy_pressure) / 100)
-    st.caption(f"Market Power: 🟢 Buyers {buy_pressure:.1f}% | 🔴 Sellers {sell_pressure:.1f}%")
+    # Checklist Display
+    chk1.info(f"📈 Trend Check: {'Bullish (Price > Pivot)' if is_price_above_pivot else 'Bearish (Price < Pivot)'}")
+    if is_buyer_strong:
+        chk2.success(f"💪 Volume Check: Buyers Strong ({buy_pressure:.1f}%)")
+    elif is_seller_strong:
+        chk2.error(f"🩸 Volume Check: Sellers Strong ({sell_pressure:.1f}%)")
+    else:
+        chk2.warning("⚖️ Volume Check: Neutral Market")
+
+    # Signal Generation
+    signal = "WAIT ⏳"
+    if is_price_above_pivot and is_buyer_strong:
+        signal = "🟢 BUY LONG SIGNAL"
+    elif not is_price_above_pivot and is_seller_strong:
+        signal = "🔴 SELL SHORT SIGNAL"
+    
+    chk3.metric("Sniper Status", signal)
 
     st.divider()
 
-    # --- ORDERBOOK ---
-    st.subheader("⚔️ Live Orderbook Battle")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("🟢 Bids (Buyers)")
-        st.dataframe(pd.DataFrame(ob['bids'], columns=['Price', 'Qty']).head(5), use_container_width=True)
-    with col2:
-        st.write("🔴 Asks (Sellers)")
-        st.dataframe(pd.DataFrame(ob['asks'], columns=['Price', 'Qty']).head(5), use_container_width=True)
+    # --- DASHBOARD METRICS ---
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Live Price", f"${spot:,.2f}")
+    c2.metric("Pivot (P)", f"${pivot:,.2f}")
+    
+    # Target and SL Calculation based on signal
+    if "BUY" in signal:
+        target_price = spot + (spot * (tp_pct/100))
+        sl_price = spot - (spot * (sl_pct/100))
+        c3.metric("🎯 Target (TP)", f"${target_price:,.2f}", f"+{tp_pct}%")
+        c4.metric("🛡️ Stoploss (SL)", f"${sl_price:,.2f}", f"-{sl_pct}%")
+    elif "SELL" in signal:
+        target_price = spot - (spot * (tp_pct/100))
+        sl_price = spot + (spot * (sl_pct/100))
+        c3.metric("🎯 Target (TP)", f"${target_price:,.2f}", f"+{tp_pct}%")
+        c4.metric("🛡️ Stoploss (SL)", f"${sl_price:,.2f}", f"-{sl_pct}%")
+    else:
+        c3.metric("🎯 Target (TP)", "Waiting for Signal...")
+        c4.metric("🛡️ Stoploss (SL)", "Waiting for Signal...")
+
+    st.divider()
+
+    # --- LIVE TRADE PANEL (Manual Execution) ---
+    t1, t2 = st.columns(2)
+    buy_clicked = t1.button("🟢 EXECUTE BUY LONG", use_container_width=True)
+    sell_clicked = t2.button("🔴 EXECUTE SELL SHORT", use_container_width=True)
+
+    if buy_clicked:
+        try:
+            order = ex.create_market_buy_order(ccxt_symbol, trade_qty)
+            st.success("✅ Buy Order Placed!")
+            # Note: API call for setting SL/TP automatically requires advanced ccxt params
+        except Exception as e:
+            st.error(f"❌ Trade Error: {e}")
+            
+    if sell_clicked:
+        try:
+            order = ex.create_market_sell_order(ccxt_symbol, trade_qty)
+            st.success("✅ Sell Order Placed!")
+        except Exception as e:
+            st.error(f"❌ Trade Error: {e}")
 
     # Refresh Loop
     time.sleep(2)
