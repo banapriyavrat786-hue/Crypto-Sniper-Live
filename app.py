@@ -1,7 +1,6 @@
 import streamlit as st
 import ccxt
 import pandas as pd
-import numpy as np
 import time
 from datetime import datetime
 
@@ -9,7 +8,7 @@ from datetime import datetime
 API_KEY = "YAHAN_APNI_API_KEY_PASTE_KAREIN"
 SECRET_KEY = "YAHAN_APNI_SECRET_KEY_PASTE_KAREIN"
 
-st.set_page_config(page_title="GRK Crypto Sniper V77", layout="wide")
+st.set_page_config(page_title="GRK F&O Sniper V77", layout="wide")
 
 @st.cache_resource
 def get_exchange():
@@ -23,12 +22,21 @@ def get_exchange():
 def get_chart_exchange():
     return ccxt.kucoin()
 
-st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
+st.title("🏹 GRK ULTIMATE F&O SNIPER | DELTA INDIA")
 
 # --- SIDEBAR: SETTINGS & RISK MANAGEMENT ---
 st.sidebar.header("⚙️ Strategy Settings")
-symbol_ui = st.sidebar.selectbox("Pair", ["BTC/USDT", "ETH/USDT"])
-timeframe = st.sidebar.selectbox("Timeframe (SMA)", ["1m", "5m", "15m", "1h", "4h", "1d"])
+
+# 🚨 Naya Symbol Input (Options aur Futures dono ke liye)
+st.sidebar.caption("Futures Ex: BTC/USDT:USDT")
+st.sidebar.caption("Options Ex: BTC/USDT:USDT-240531-70000-C")
+ccxt_symbol = st.sidebar.text_input("Exact Contract Symbol", value="BTC/USDT:USDT")
+
+# Kucoin ka spot symbol SMA ke liye (e.g. BTC-USDT)
+base_coin = ccxt_symbol.split('/')[0] if '/' in ccxt_symbol else 'BTC'
+kucoin_symbol = f"{base_coin}-USDT"
+
+timeframe = st.sidebar.selectbox("Timeframe (SMA)", ["1m", "5m", "15m", "1h", "4h", "1d"], index=1)
 sma_period = st.sidebar.number_input("SMA Period", min_value=5, value=20, step=1)
 
 st.sidebar.divider()
@@ -42,13 +50,22 @@ try:
     ex = get_exchange()
     chart_ex = get_chart_exchange()
     
-    ccxt_symbol = f"{symbol_ui}:USDT"
-    
-    # 1. LIVE DATA FETCHING (Sirf Orderbook se, Ticker hata diya)
+    # 1. LIVE DATA FETCHING (Ticker for Greeks/OI + Orderbook for Price)
+    ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
-    # 2. SMA DATA FETCHING (KuCoin se)
-    kucoin_symbol = symbol_ui.replace('/', '-') 
+    # Extracting Info (Greeks, OI, Volume)
+    info = ticker.get('info', {})
+    oi = float(info.get('open_interest', 0)) if info.get('open_interest') else 0.0
+    volume = float(ticker.get('baseVolume', 0)) if ticker.get('baseVolume') else 0.0
+    
+    # Greeks (Agar Call/Put hoga tabhi values aayengi, warna 0 rahengi)
+    delta_val = float(info.get('delta', 0)) if info.get('delta') else 0.0
+    theta_val = float(info.get('theta', 0)) if info.get('theta') else 0.0
+    gamma_val = float(info.get('gamma', 0)) if info.get('gamma') else 0.0
+    iv_val = float(info.get('implied_volatility', 0)) if info.get('implied_volatility') else 0.0
+    
+    # 2. SMA DATA FETCHING (KuCoin Spot Data)
     ohlcv = chart_ex.fetch_ohlcv(kucoin_symbol, timeframe, limit=sma_period + 5)
         
     if not ohlcv or len(ohlcv) < sma_period:
@@ -62,15 +79,13 @@ try:
         
     # 3. 100% LIVE PRICE LOGIC (Seedha Orderbook se)
     if ob['bids'] and ob['asks']:
-        best_bid = ob['bids'][0][0]  # Sabse upar wala Buyer
-        best_ask = ob['asks'][0][0]  # Sabse upar wala Seller
-        spot = (best_bid + best_ask) / 2 # Mid-Price
+        best_bid = ob['bids'][0][0]  
+        best_ask = ob['asks'][0][0]  
+        spot = (best_bid + best_ask) / 2 
     else:
-        raise ValueError("Live Orderbook khali hai, data nahi aa raha.")
+        spot = ticker.get('last', 0)
     
     spot = float(spot)
-
-    # SMA Trend calculation
     is_price_above_sma = spot > current_sma if current_sma > 0 else False
 
     # 4. BUYER/SELLER PRESSURE
@@ -81,38 +96,58 @@ try:
     buy_pressure = (bids_qty / total_qty) * 100 if total_qty > 0 else 50
     sell_pressure = (asks_qty / total_qty) * 100 if total_qty > 0 else 50
 
-    # --- STRATEGY CHECKLIST & LOGIC ---
     is_buyer_strong = buy_pressure > 55.0
     is_seller_strong = sell_pressure > 55.0
 
-    st.subheader("📋 Algorithmic Entry Checklist")
-    chk1, chk2, chk3 = st.columns(3)
+    # --- UI DISPLAY: GREEKS & MARKET DATA ---
+    st.subheader("📊 Market Data & Options Greeks")
+    g1, g2, g3, g4, g5, g6 = st.columns(6)
+    g1.metric("Volume (Base)", f"{volume:,.2f}")
+    g2.metric("Open Interest (OI)", f"{oi:,.2f}")
+    g3.metric("Delta (Δ)", f"{delta_val:,.4f}")
+    g4.metric("Theta (Θ)", f"{theta_val:,.4f}")
+    g5.metric("Gamma (Γ)", f"{gamma_val:,.6f}")
+    g6.metric("Implied Volatility (IV)", f"{iv_val:,.2f}%")
+    st.caption("*Note: Greeks (Delta, Theta, Gamma, IV) will show 0.00 for Futures. Type an Options symbol to see actual Greek values.*")
+
+    st.divider()
+
+    # --- STRATEGY CHECKLIST & LOGIC ---
+    st.subheader("📋 Advanced Algorithmic Checklist")
+    chk1, chk2, chk3, chk4 = st.columns(4)
     
     if current_sma > 0:
-        chk1.info(f"📈 Trend Check: {'Bullish (Price > SMA)' if is_price_above_sma else 'Bearish (Price < SMA)'}")
+        chk1.info(f"📈 Trend Check: {'Bullish (>SMA)' if is_price_above_sma else 'Bearish (<SMA)'}")
     else:
         chk1.warning("⏳ Trend Loading...")
         
     if is_buyer_strong:
-        chk2.success(f"💪 Volume Check: Buyers Strong ({buy_pressure:.1f}%)")
+        chk2.success(f"💪 Volume Pressure: Buyers ({buy_pressure:.1f}%)")
     elif is_seller_strong:
-        chk2.error(f"🩸 Volume Check: Sellers Strong ({sell_pressure:.1f}%)")
+        chk2.error(f"🩸 Volume Pressure: Sellers ({sell_pressure:.1f}%)")
     else:
-        chk2.warning("⚖️ Volume Check: Neutral Market")
+        chk2.warning("⚖️ Volume Pressure: Neutral")
 
+    # OI/Volume Quality Check
+    if oi > 0 and volume > 0:
+        chk3.success("🔥 High Liquidity (OI & Vol Present)")
+    else:
+        chk3.warning("⚠️ Low Liquidity (Wait)")
+
+    # 🚨 FINAL SIGNAL CALCULATION (Trend + Pressure + Liquidity)
     signal = "WAIT ⏳"
     if current_sma > 0:
-        if is_price_above_sma and is_buyer_strong:
+        # Conditions for strong trade: Trend is matching Pressure AND there is OI/Volume in market
+        if is_price_above_sma and is_buyer_strong and (oi > 0 or volume > 0):
             signal = "🟢 BUY LONG SIGNAL"
-        elif not is_price_above_sma and is_seller_strong:
+        elif not is_price_above_sma and is_seller_strong and (oi > 0 or volume > 0):
             signal = "🔴 SELL SHORT SIGNAL"
     
-    chk3.metric("Sniper Status", signal)
+    chk4.metric("🎯 Bot Status", signal)
 
     st.divider()
 
     # --- DASHBOARD METRICS ---
-    # Live Clock Add kiya hai taaki refresh pata chale
     current_time = datetime.now().strftime("%I:%M:%S %p")
     st.caption(f"⚡ Live Market Data | Last Updated: {current_time}")
     
@@ -148,18 +183,18 @@ try:
     if buy_clicked:
         try:
             ex.create_market_buy_order(ccxt_symbol, trade_qty)
-            st.success("✅ Buy Order Placed Successfully!")
+            st.success(f"✅ Buy Order Placed Successfully for {ccxt_symbol}!")
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
             
     if sell_clicked:
         try:
             ex.create_market_sell_order(ccxt_symbol, trade_qty)
-            st.success("✅ Sell Order Placed Successfully!")
+            st.success(f"✅ Sell Order Placed Successfully for {ccxt_symbol}!")
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
 
-    # Refresh Loop
+    # Refresh Loop (Auto-Reload)
     time.sleep(3)
     st.rerun()
 
