@@ -9,10 +9,9 @@ SECRET_KEY = "vU85g2uNhMuhbKeboyM8ho48snw3Kuix6yeML1mxlTTZaHrWh8BGjWh2pOou"
 
 st.set_page_config(page_title="GRK Crypto Sniper V77", layout="wide")
 
-# --- EXCHANGE CONNECTION FIX ---
 @st.cache_resource
 def get_exchange():
-    return ccxt.delta({  # Yahan mistake thi jise theek kar diya gaya hai
+    return ccxt.delta({
         'apiKey': API_KEY,
         'secret': SECRET_KEY,
         'options': {'defaultType': 'future'}
@@ -21,7 +20,6 @@ def get_exchange():
 st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
 
 # --- SIDEBAR CONTROLS ---
-# Delta me standard pair ka naam aise hi hota hai
 symbol = st.sidebar.selectbox("Pair", ["BTC/USDT", "ETH/USDT"])
 
 with st.sidebar.expander("📐 Pivot Levels", expanded=True):
@@ -31,10 +29,17 @@ with st.sidebar.expander("📐 Pivot Levels", expanded=True):
 
 try:
     ex = get_exchange()
-    
-    # Live Price Fetching
     ticker = ex.fetch_ticker(symbol)
-    spot = ticker['last']
+    
+    # --- ERROR FIX: SAFETY CHECK FOR PRICE ---
+    spot = ticker.get('last')
+    if spot is None:
+        spot = ticker.get('close') # Agar 'last' nahi mila toh 'close' price check karega
+        
+    if spot is None:
+        raise ValueError("API se price abhi load nahi hua hai (None value).")
+        
+    spot = float(spot) # Isko proper number mein convert kar diya
     
     # Pivot Calculation Logic
     pivot = (prev_h + prev_l + prev_c) / 3
@@ -65,7 +70,6 @@ try:
     st.rerun()
 
 except Exception as e:
-    # Agar data aane me thoda time lage ya API issue ho
-    st.error(f"🔄 Market data syncing... Error Details: {e}")
+    st.error(f"Market data syncing... Error Details: {e}")
     time.sleep(3)
     st.rerun()
