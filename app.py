@@ -3,6 +3,7 @@ import ccxt
 import pandas as pd
 import numpy as np
 import time
+from datetime import datetime
 
 # --- 🚨 YAHAN APNI KEYS KHUD PASTE KAREIN 🚨 ---
 API_KEY = "YAHAN_APNI_API_KEY_PASTE_KAREIN"
@@ -41,21 +42,10 @@ try:
     ex = get_exchange()
     chart_ex = get_chart_exchange()
     
-    # --- SMART SYMBOL CHECKER (Delta ke liye) ---
-    ex.load_markets() # Markets load karna zaruri hai
-    trade_symbol = symbol_ui
-    if f"{symbol_ui}:USDT" in ex.markets:
-        trade_symbol = f"{symbol_ui}:USDT"
+    ccxt_symbol = f"{symbol_ui}:USDT"
     
-    # 1. LIVE DATA FETCHING (Delta se)
-    try:
-        ticker = ex.fetch_ticker(trade_symbol)
-        ob = ex.fetch_order_book(trade_symbol, limit=20)
-    except:
-        # Fallback agar Delta symbol issue kare
-        ticker = ex.fetch_ticker(symbol_ui)
-        ob = ex.fetch_order_book(symbol_ui, limit=20)
-        trade_symbol = symbol_ui
+    # 1. LIVE DATA FETCHING (Sirf Orderbook se, Ticker hata diya)
+    ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
     # 2. SMA DATA FETCHING (KuCoin se)
     kucoin_symbol = symbol_ui.replace('/', '-') 
@@ -70,16 +60,13 @@ try:
         df['SMA'] = df['close'].rolling(window=sma_period).mean()
         current_sma = df['SMA'].dropna().iloc[-1]
         
-    # 3. BULLETPROOF LIVE PRICE LOGIC
-    spot = ticker.get('last')
-    if spot is None or spot == 0:
-        spot = ticker.get('close') # Last price na mile toh Close price le lo
-    if spot is None or spot == 0:
-        if ob['bids'] and ob['asks']:
-            spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2 # Agar dono na mile toh Orderbook ke beech ka price
-            
-    if spot is None or spot == 0:
-        raise ValueError("Live Price load nahi ho pa raha hai.")
+    # 3. 100% LIVE PRICE LOGIC (Seedha Orderbook se)
+    if ob['bids'] and ob['asks']:
+        best_bid = ob['bids'][0][0]  # Sabse upar wala Buyer
+        best_ask = ob['asks'][0][0]  # Sabse upar wala Seller
+        spot = (best_bid + best_ask) / 2 # Mid-Price
+    else:
+        raise ValueError("Live Orderbook khali hai, data nahi aa raha.")
     
     spot = float(spot)
 
@@ -125,8 +112,12 @@ try:
     st.divider()
 
     # --- DASHBOARD METRICS ---
+    # Live Clock Add kiya hai taaki refresh pata chale
+    current_time = datetime.now().strftime("%I:%M:%S %p")
+    st.caption(f"⚡ Live Market Data | Last Updated: {current_time}")
+    
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Live Price", f"${spot:,.2f}")
+    c1.metric("Live Price (Orderbook)", f"${spot:,.2f}")
     
     if current_sma > 0:
         c2.metric("SMA Trend Line", f"${current_sma:,.2f}", delta=f"{round(spot-current_sma, 2)}")
@@ -156,14 +147,14 @@ try:
 
     if buy_clicked:
         try:
-            ex.create_market_buy_order(trade_symbol, trade_qty)
+            ex.create_market_buy_order(ccxt_symbol, trade_qty)
             st.success("✅ Buy Order Placed Successfully!")
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
             
     if sell_clicked:
         try:
-            ex.create_market_sell_order(trade_symbol, trade_qty)
+            ex.create_market_sell_order(ccxt_symbol, trade_qty)
             st.success("✅ Sell Order Placed Successfully!")
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
@@ -173,6 +164,6 @@ try:
     st.rerun()
 
 except Exception as e:
-    st.error(f"Error Details: {e}")
+    st.error(f"Data refresh ho raha hai... Error Details: {e}")
     time.sleep(4)
     st.rerun()
