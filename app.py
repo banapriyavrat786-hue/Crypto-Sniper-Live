@@ -4,15 +4,14 @@ import pandas as pd
 import numpy as np
 import time
 
-# --- AAPKI DELTA EXCHANGE API KEYS ---
-API_KEY = "FI831QLhYTsF8M6MhoCKFgHfy0Tf12"
-SECRET_KEY = "x6LK5Q75IKpfOMjnrIR9ee85EwRhresB7Jp1SY333XplXum8FSpp2iVAalfA"
+# --- 🚨 YAHAN APNI KEYS KHUD PASTE KAREIN (Typos se bachne ke liye) 🚨 ---
+API_KEY = "YAHAN_APNI_API_KEY_PASTE_KAREIN"
+SECRET_KEY = "YAHAN_APNI_SECRET_KEY_PASTE_KAREIN"
 
 st.set_page_config(page_title="GRK Crypto Sniper V77", layout="wide")
 
 @st.cache_resource
 def get_exchange():
-    # URL Override hata diya hai taaki API Key fail na ho
     return ccxt.delta({
         'apiKey': API_KEY,
         'secret': SECRET_KEY,
@@ -21,8 +20,9 @@ def get_exchange():
 
 @st.cache_resource
 def get_chart_exchange():
-    # Binance for 100% reliable SMA/Candle Data
-    return ccxt.binance()
+    # Streamlit US servers use karta hai jahan Binance block hai.
+    # Isliye ab hum KuCoin ka fast public data use karenge (100% reliable)
+    return ccxt.kucoin()
 
 st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
 
@@ -50,8 +50,9 @@ try:
     ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
-    # 2. SMA DATA FETCHING (Binance se - Fast & Safe)
-    ohlcv = chart_ex.fetch_ohlcv(symbol_ui, timeframe, limit=sma_period + 5)
+    # 2. SMA DATA FETCHING (KuCoin se - Safe from US Server Blocks)
+    kucoin_symbol = symbol_ui.replace('/', '-') # KuCoin format (BTC-USDT)
+    ohlcv = chart_ex.fetch_ohlcv(kucoin_symbol, timeframe, limit=sma_period + 5)
         
     if not ohlcv or len(ohlcv) < sma_period:
         current_sma = 0
