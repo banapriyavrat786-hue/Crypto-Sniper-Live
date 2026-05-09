@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import time
 
-# --- 🚨 YAHAN APNI KEYS KHUD PASTE KAREIN (Typos se bachne ke liye) 🚨 ---
+# --- 🚨 YAHAN APNI KEYS KHUD PASTE KAREIN 🚨 ---
 API_KEY = "YAHAN_APNI_API_KEY_PASTE_KAREIN"
 SECRET_KEY = "YAHAN_APNI_SECRET_KEY_PASTE_KAREIN"
 
@@ -20,8 +20,6 @@ def get_exchange():
 
 @st.cache_resource
 def get_chart_exchange():
-    # Streamlit US servers use karta hai jahan Binance block hai.
-    # Isliye ab hum KuCoin ka fast public data use karenge (100% reliable)
     return ccxt.kucoin()
 
 st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
@@ -43,15 +41,24 @@ try:
     ex = get_exchange()
     chart_ex = get_chart_exchange()
     
-    # Delta Futures ke liye symbol format
-    ccxt_symbol = f"{symbol_ui}:USDT"
+    # --- SMART SYMBOL CHECKER (Delta ke liye) ---
+    ex.load_markets() # Markets load karna zaruri hai
+    trade_symbol = symbol_ui
+    if f"{symbol_ui}:USDT" in ex.markets:
+        trade_symbol = f"{symbol_ui}:USDT"
     
     # 1. LIVE DATA FETCHING (Delta se)
-    ticker = ex.fetch_ticker(ccxt_symbol)
-    ob = ex.fetch_order_book(ccxt_symbol, limit=20)
+    try:
+        ticker = ex.fetch_ticker(trade_symbol)
+        ob = ex.fetch_order_book(trade_symbol, limit=20)
+    except:
+        # Fallback agar Delta symbol issue kare
+        ticker = ex.fetch_ticker(symbol_ui)
+        ob = ex.fetch_order_book(symbol_ui, limit=20)
+        trade_symbol = symbol_ui
     
-    # 2. SMA DATA FETCHING (KuCoin se - Safe from US Server Blocks)
-    kucoin_symbol = symbol_ui.replace('/', '-') # KuCoin format (BTC-USDT)
+    # 2. SMA DATA FETCHING (KuCoin se)
+    kucoin_symbol = symbol_ui.replace('/', '-') 
     ohlcv = chart_ex.fetch_ohlcv(kucoin_symbol, timeframe, limit=sma_period + 5)
         
     if not ohlcv or len(ohlcv) < sma_period:
@@ -63,14 +70,17 @@ try:
         df['SMA'] = df['close'].rolling(window=sma_period).mean()
         current_sma = df['SMA'].dropna().iloc[-1]
         
-    # 3. LIVE PRICE LOGIC
+    # 3. BULLETPROOF LIVE PRICE LOGIC
     spot = ticker.get('last')
-    if spot is None:
+    if spot is None or spot == 0:
+        spot = ticker.get('close') # Last price na mile toh Close price le lo
+    if spot is None or spot == 0:
         if ob['bids'] and ob['asks']:
-            spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
+            spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2 # Agar dono na mile toh Orderbook ke beech ka price
             
-    if spot is None:
-        raise ValueError("Live Price load nahi hua.")
+    if spot is None or spot == 0:
+        raise ValueError("Live Price load nahi ho pa raha hai.")
+    
     spot = float(spot)
 
     # SMA Trend calculation
@@ -146,14 +156,14 @@ try:
 
     if buy_clicked:
         try:
-            ex.create_market_buy_order(ccxt_symbol, trade_qty)
+            ex.create_market_buy_order(trade_symbol, trade_qty)
             st.success("✅ Buy Order Placed Successfully!")
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
             
     if sell_clicked:
         try:
-            ex.create_market_sell_order(ccxt_symbol, trade_qty)
+            ex.create_market_sell_order(trade_symbol, trade_qty)
             st.success("✅ Sell Order Placed Successfully!")
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
