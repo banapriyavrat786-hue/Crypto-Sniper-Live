@@ -1,6 +1,7 @@
 import streamlit as st
 import ccxt
 import pandas as pd
+import numpy as np
 import time
 
 # --- AAPKI DELTA EXCHANGE API KEYS ---
@@ -22,11 +23,8 @@ st.title("🏹 GRK CRYPTO SNIPER V77 | DELTA INDIA")
 # --- SIDEBAR: SETTINGS & RISK MANAGEMENT ---
 st.sidebar.header("⚙️ Strategy Settings")
 symbol_ui = st.sidebar.selectbox("Pair", ["BTC/USDT", "ETH/USDT"])
-
-with st.sidebar.expander("📐 Pivot Levels", expanded=True):
-    prev_h = st.number_input("Prev High", value=65000.0)
-    prev_l = st.number_input("Prev Low", value=63000.0)
-    prev_c = st.number_input("Prev Close", value=64200.0)
+timeframe = st.sidebar.selectbox("Timeframe (SMA)", ["1m", "5m", "15m", "1h"])
+sma_period = st.sidebar.number_input("SMA Period", min_value=5, value=20, step=1)
 
 st.sidebar.divider()
 
@@ -39,19 +37,26 @@ try:
     ex = get_exchange()
     ccxt_symbol = f"{symbol_ui}:USDT"
     
-    # --- DATA FETCHING ---
+    # --- DATA FETCHING (Ticker, Orderbook, Candles) ---
     ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
+    # SMA ke liye pichle candles ka data lana
+    ohlcv = ex.fetch_ohlcv(ccxt_symbol, timeframe, limit=sma_period + 5)
+    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    
+    # --- SMA CALCULATION ---
+    df['SMA'] = df['close'].rolling(window=sma_period).mean()
+    current_sma = df['SMA'].iloc[-1]
+    
+    # Live Price Check
     spot = ticker.get('last')
     if spot is None:
         if ob['bids'] and ob['asks']:
             spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
     if spot is None:
         raise ValueError("Data nahi mil raha hai.")
-    
     spot = float(spot)
-    pivot = (prev_h + prev_l + prev_c) / 3
 
     # --- BUYER/SELLER PRESSURE ---
     bids_qty = sum([bid[1] for bid in ob['bids']])
@@ -62,7 +67,8 @@ try:
     sell_pressure = (asks_qty / total_qty) * 100 if total_qty > 0 else 50
 
     # --- STRATEGY CHECKLIST & LOGIC ---
-    is_price_above_pivot = spot > pivot
+    # Ab trend SMA ke basis par decide hoga (Pivot hat gaya)
+    is_price_above_sma = spot > current_sma
     is_buyer_strong = buy_pressure > 55.0
     is_seller_strong = sell_pressure > 55.0
 
@@ -70,7 +76,7 @@ try:
     chk1, chk2, chk3 = st.columns(3)
     
     # Checklist Display
-    chk1.info(f"📈 Trend Check: {'Bullish (Price > Pivot)' if is_price_above_pivot else 'Bearish (Price < Pivot)'}")
+    chk1.info(f"📈 Trend Check: {'Bullish (Price > SMA)' if is_price_above_sma else 'Bearish (Price < SMA)'}")
     if is_buyer_strong:
         chk2.success(f"💪 Volume Check: Buyers Strong ({buy_pressure:.1f}%)")
     elif is_seller_strong:
@@ -80,9 +86,9 @@ try:
 
     # Signal Generation
     signal = "WAIT ⏳"
-    if is_price_above_pivot and is_buyer_strong:
+    if is_price_above_sma and is_buyer_strong:
         signal = "🟢 BUY LONG SIGNAL"
-    elif not is_price_above_pivot and is_seller_strong:
+    elif not is_price_above_sma and is_seller_strong:
         signal = "🔴 SELL SHORT SIGNAL"
     
     chk3.metric("Sniper Status", signal)
@@ -92,7 +98,7 @@ try:
     # --- DASHBOARD METRICS ---
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Live Price", f"${spot:,.2f}")
-    c2.metric("Pivot (P)", f"${pivot:,.2f}")
+    c2.metric("SMA Trend Line", f"${current_sma:,.2f}", delta=f"{round(spot-current_sma, 2)}")
     
     # Target and SL Calculation based on signal
     if "BUY" in signal:
@@ -120,7 +126,6 @@ try:
         try:
             order = ex.create_market_buy_order(ccxt_symbol, trade_qty)
             st.success("✅ Buy Order Placed!")
-            # Note: API call for setting SL/TP automatically requires advanced ccxt params
         except Exception as e:
             st.error(f"❌ Trade Error: {e}")
             
