@@ -54,16 +54,20 @@ try:
     ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=20)
     
-    # Extracting Info (Greeks, OI, Volume)
+    # Extracting Raw Delta API Response
     info = ticker.get('info', {})
-    oi = float(info.get('open_interest', 0)) if info.get('open_interest') else 0.0
-    volume = float(ticker.get('baseVolume', 0)) if ticker.get('baseVolume') else 0.0
     
-    # Greeks (Agar Call/Put hoga tabhi values aayengi, warna 0 rahengi)
-    delta_val = float(info.get('delta', 0)) if info.get('delta') else 0.0
-    theta_val = float(info.get('theta', 0)) if info.get('theta') else 0.0
-    gamma_val = float(info.get('gamma', 0)) if info.get('gamma') else 0.0
-    iv_val = float(info.get('implied_volatility', 0)) if info.get('implied_volatility') else 0.0
+    # 🚨 Sahi Tarika: OI aur Volume nikalne ka
+    oi = float(ticker.get('openInterest') or info.get('open_interest') or 0.0)
+    volume = float(ticker.get('baseVolume') or info.get('volume_24h') or 0.0)
+    
+    # 🚨 Sahi Tarika: Delta API mein Greeks hamesha 'greeks' object ke andar hote hain
+    greeks_data = info.get('greeks', {})
+    
+    delta_val = float(greeks_data.get('delta', 0.0))
+    theta_val = float(greeks_data.get('theta', 0.0))
+    gamma_val = float(greeks_data.get('gamma', 0.0))
+    iv_val = float(greeks_data.get('iv') or info.get('implied_volatility') or 0.0)
     
     # 2. SMA DATA FETCHING (KuCoin Spot Data)
     ohlcv = chart_ex.fetch_ohlcv(kucoin_symbol, timeframe, limit=sma_period + 5)
@@ -151,54 +155,4 @@ try:
     current_time = datetime.now().strftime("%I:%M:%S %p")
     st.caption(f"⚡ Live Market Data | Last Updated: {current_time}")
     
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Live Price (Orderbook)", f"${spot:,.2f}")
-    
-    if current_sma > 0:
-        c2.metric("SMA Trend Line", f"${current_sma:,.2f}", delta=f"{round(spot-current_sma, 2)}")
-    else:
-        c2.metric("SMA Trend Line", "Loading...")
-    
-    if "BUY" in signal:
-        target_price = spot + (spot * (tp_pct/100))
-        sl_price = spot - (spot * (sl_pct/100))
-        c3.metric("🎯 Target (TP)", f"${target_price:,.2f}", f"+{tp_pct}%")
-        c4.metric("🛡️ Stoploss (SL)", f"${sl_price:,.2f}", f"-{sl_pct}%")
-    elif "SELL" in signal:
-        target_price = spot - (spot * (tp_pct/100))
-        sl_price = spot + (spot * (sl_pct/100))
-        c3.metric("🎯 Target (TP)", f"${target_price:,.2f}", f"+{tp_pct}%")
-        c4.metric("🛡️ Stoploss (SL)", f"${sl_price:,.2f}", f"-{sl_pct}%")
-    else:
-        c3.metric("🎯 Target (TP)", "Waiting for Signal...")
-        c4.metric("🛡️ Stoploss (SL)", "Waiting for Signal...")
-
-    st.divider()
-
-    # --- LIVE TRADE PANEL ---
-    t1, t2 = st.columns(2)
-    buy_clicked = t1.button("🟢 EXECUTE BUY LONG", use_container_width=True)
-    sell_clicked = t2.button("🔴 EXECUTE SELL SHORT", use_container_width=True)
-
-    if buy_clicked:
-        try:
-            ex.create_market_buy_order(ccxt_symbol, trade_qty)
-            st.success(f"✅ Buy Order Placed Successfully for {ccxt_symbol}!")
-        except Exception as e:
-            st.error(f"❌ Trade Error: {e}")
-            
-    if sell_clicked:
-        try:
-            ex.create_market_sell_order(ccxt_symbol, trade_qty)
-            st.success(f"✅ Sell Order Placed Successfully for {ccxt_symbol}!")
-        except Exception as e:
-            st.error(f"❌ Trade Error: {e}")
-
-    # Refresh Loop (Auto-Reload)
-    time.sleep(3)
-    st.rerun()
-
-except Exception as e:
-    st.error(f"Data refresh ho raha hai... Error Details: {e}")
-    time.sleep(4)
-    st.rerun()
+    c1, c2, c
