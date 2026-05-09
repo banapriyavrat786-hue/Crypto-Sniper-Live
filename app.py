@@ -3,9 +3,9 @@ import ccxt
 import pandas as pd
 import time
 
-# --- AAPKI DELTA EXCHANGE API KEYS ---
-API_KEY = "kQMGysaa9CZhlavh7FrAID7lsLamnd"
-SECRET_KEY = "vU85g2uNhMuhbKeboyM8ho48snw3Kuix6yeML1mxlTTZaHrWh8BGjWh2pOou"
+# --- NAYI DELTA EXCHANGE API KEYS (TRADING ENABLED) ---
+API_KEY = "FI831QLhYTsF8M6MhoCKFgHfy0Tf12"
+SECRET_KEY = "x6LK5Q75IKpfOMjnrIR9ee85EwRhresB7Jp1SY333XplXum8FSpp2iVAalfA"
 
 st.set_page_config(page_title="GRK Crypto Sniper V77", layout="wide")
 
@@ -30,18 +30,16 @@ with st.sidebar.expander("📐 Pivot Levels", expanded=True):
 try:
     ex = get_exchange()
     
-    # --- ERROR FIX: CCXT FUTURES SYMBOL FORMAT ---
-    # Futures market ke liye symbol ke aage ':USDT' lagana zaruri hota hai
+    # Futures market ke liye symbol format setup
     ccxt_symbol = f"{symbol_ui}:USDT"
     
-    # Ticker aur Orderbook dono ek sath mangwate hain
+    # Ticker aur Orderbook fetch karna
     ticker = ex.fetch_ticker(ccxt_symbol)
     ob = ex.fetch_order_book(ccxt_symbol, limit=10)
     
     spot = ticker.get('last')
     
-    # --- BULLETPROOF PRICE CHECK ---
-    # Agar Ticker se price nahi mila, toh Orderbook ke current Bid/Ask se nikal lenge
+    # Bulletproof Price Check
     if spot is None:
         if ob['bids'] and ob['asks']:
             spot = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
